@@ -29,3 +29,9 @@ config MSM_HOTPLUG
 	help
 	  The MSM hotplug driver controls on-/offlining of additional cores based
 	  on current cpu load.
+
+config THUNDER_PLUG
+      bool "Enable plugging down/up of cores using powersuspend"
+      help
+       This driver uses powersuspend to take down the cpu cores
+       on a octa core device. Tuned to work on a dual core device.
