@@ -1386,7 +1386,6 @@ static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
 	}
 	
 	display_on = false;
-        mdss_livedisplay_update(ctrl, MODE_UPDATE_ALL);
 
 end:
 	pr_debug("%s:-\n", __func__);
