@@ -29,7 +29,7 @@
 #define DEFAULT_NR_CPUS_BOOSTED		DEFAULT_MAX_CPUS
 #define DEFAULT_UPDATE_RATE		30
 #define MIN_INPUT_INTERVAL		150 * 1000L
-#define DEFAULT_MIN_BOOST_FREQ		960000
+#define DEFAULT_MIN_BOOST_FREQ		1242000
 
 static struct delayed_work skater_hotplug_work;
 static struct workqueue_struct *skater_hotplug_workq;
@@ -52,7 +52,7 @@ static struct skater_hotplug_struct {
 	.enabled = SKATER_ENABLED,
 	.delay = DEFAULT_UPDATE_RATE,
 	.max_cpus = DEFAULT_MAX_CPUS,
-	.min_cpus = DEFAULT_MAX_CPUS / 2,
+	.min_cpus = DEFAULT_MAX_CPUS,
 	.cpufreq_up = 95,
 	.cpufreq_down = 80,
 	.cycle_up = 1,
@@ -159,8 +159,6 @@ static void __cpuinit skater_hotplug_work_fn(struct work_struct *work)
 
 static void skater_hotplug_suspend(void)
 {
-	unsigned int cpu;
-
 	/* Flush hotplug workqueue */
 	flush_workqueue(skater_hotplug_workq);
 	cancel_delayed_work_sync(&skater_hotplug_work);
