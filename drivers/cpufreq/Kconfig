@@ -269,6 +269,13 @@ config CPU_FREQ_GOV_NIGHTMARE
 	  To compile this driver as a module, choose M here: the
 	  module will be called cpufreq_nightmare.
 
+config CPU_FREQ_GOV_LIONHEART
+	tristate "'lionheart' governor"
+	help
+	  The cpufreq governor Lionheart. WJH
+	  To compile this driver as a module, choose M here: the
+	  module will be called cpufreq_lionheart.
+
 config CPU_BOOST
 	tristate "Event base short term CPU freq boost"
 	depends on CPU_FREQ
