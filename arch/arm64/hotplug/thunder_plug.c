@@ -28,20 +28,20 @@
 
 #define DEBUG				         0
 
-#define THUNDERPLUG			     "thunderplug"
-#define HOTPLUG_ENABLED			     0
-#define DRIVER_VERSION			     5
-#define DRIVER_SUBVER			     4
-#define DEFAULT_CPU_LOAD_THRESHOLD	     90
-#define STARTDELAY			     1000
-#define DEF_SAMPLING_MS			     20
-#define MIN_SAMLING_MS			     10
-#define MIN_CPU_UP_TIME			     300
-#define DEFAULT_BOOST_LOCK_DUR		     500 * 1000L
-#define DEFAULT_NR_CPUS_BOOSTED		     2
-#define MIN_INPUT_INTERVAL		     150 * 1000L
-
-extern bool screen_on;
+#define THUNDERPLUG			"thunderplug"
+#define HOTPLUG_ENABLED			0
+#define DRIVER_VERSION			5
+#define DRIVER_SUBVER			4
+#define DEFAULT_CPU_LOAD_THRESHOLD	90
+#define STARTDELAY			1000
+#define DEF_SAMPLING_MS			20
+#define MIN_SAMLING_MS			10
+#define MIN_CPU_UP_TIME			300
+#define DEFAULT_BOOST_LOCK_DUR		500 * 1000L
+#define DEFAULT_MAX_CPUS		NR_CPUS
+#define DEFAULT_MIN_CPUS		DEFAULT_MAX_CPUS / 2
+#define DEFAULT_NR_CPUS_BOOSTED		DEFAULT_MAX_CPUS
+#define MIN_INPUT_INTERVAL		150 * 1000L
 
 static int now[8], last_time[8];
 struct cpufreq_policy old_policy[NR_CPUS];
@@ -83,10 +83,10 @@ static struct thunder_param_struct {
 } thunder_param = {
 	.cpus_boosted = DEFAULT_NR_CPUS_BOOSTED,
 	.boost_lock_dur = DEFAULT_BOOST_LOCK_DUR,
-	.suspend_cpu_num = 1,
-	.resume_cpu_num = 2,
-	.max_core_online = 2,
-	.min_core_online = 1,
+	.suspend_cpu_num = DEFAULT_MIN_CPUS,
+	.resume_cpu_num = DEFAULT_NR_CPUS_BOOSTED,
+	.max_core_online = DEFAULT_MAX_CPUS,
+	.min_core_online = DEFAULT_MIN_CPUS,
 	.sampling_time = DEF_SAMPLING_MS,
 	.load_threshold = DEFAULT_CPU_LOAD_THRESHOLD,
 	.tplug_hp_enabled = HOTPLUG_ENABLED,
@@ -129,7 +129,7 @@ static inline void cpus_online_all(void)
 static void __ref tplug_boost_work_fn(struct work_struct *work)
 {
 	int cpu;
-	for(cpu = 1; cpu < 4; cpu++) {
+	for (cpu = 1; cpu < 4; cpu++) {
 		if(cpu_is_offline(cpu))
 			cpu_up(cpu);
 	}
@@ -191,15 +191,15 @@ static const struct input_device_id tplug_ids[] = {
 };
 
 static struct input_handler tplug_input_handler = {
-	.event          = tplug_input_event,
-	.connect        = tplug_input_connect,
-	.disconnect     = tplug_input_disconnect,
-	.name           = "tplug_handler",
-	.id_table       = tplug_ids,
+	.event = tplug_input_event,
+	.connect = tplug_input_connect,
+	.disconnect = tplug_input_disconnect,
+	.name = "tplug_handler",
+	.id_table = tplug_ids,
 };
 
 static ssize_t thunderplug_hotplug_suspend_show(struct kobject *kobj,
-                        struct kobj_attribute *attr, char *buf)
+			struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf, "%d", thunder_param.hotplug_suspend);
 }
@@ -228,7 +228,7 @@ static ssize_t thunderplug_hotplug_suspend_store(struct kobject *kobj,
 
 static ssize_t thunderplug_tb_enabled_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
-    return sprintf(buf, "%d", thunder_param.touch_boost_enabled);
+	return sprintf(buf, "%d", thunder_param.touch_boost_enabled);
 }
 
 static ssize_t __ref thunderplug_tb_enabled_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count)
@@ -312,8 +312,8 @@ static ssize_t thunderplug_min_core_online_show(struct kobject *kobj,
 }
 
 static ssize_t __ref thunderplug_min_core_online_store(struct kobject *kobj,
-                        struct kobj_attribute *attr,
-                        const char *buf, size_t count)
+			struct kobj_attribute *attr,
+			const char *buf, size_t count)
 {
 	int val;
 
@@ -524,23 +524,17 @@ reschedule:
 #ifdef CONFIG_STATE_NOTIFIER
 static void __ref thunderplug_suspend(void)
 {
-	if (unlikely(!screen_on)) {
-		screen_on = false;
-		cancel_delayed_work_sync(&tplug_work);
-		offline_cpus();
-		pr_info("%s: suspend\n", THUNDERPLUG);
-	}
+	cancel_delayed_work_sync(&tplug_work);
+	offline_cpus();
+	pr_info("%s: suspend\n", THUNDERPLUG);
 }
 
 static void __ref thunderplug_resume(void)
 {
-	if (unlikely(screen_on)) {
-		screen_on = true;
-		cpus_online_all();
-		pr_info("%s: resume\n", THUNDERPLUG);
-		queue_delayed_work_on(0, tplug_wq, &tplug_work,
-				msecs_to_jiffies(thunder_param.sampling_time));
-	}
+	cpus_online_all();
+	pr_info("%s: resume\n", THUNDERPLUG);
+	queue_delayed_work_on(0, tplug_wq, &tplug_work,
+			msecs_to_jiffies(thunder_param.sampling_time));
 }
 
 static int state_notifier_callback(struct notifier_block *this,
@@ -603,8 +597,6 @@ static void thunder_input_event(struct input_handle *handle, unsigned int type,
 {
 	u64 time_now;
 
-	if (unlikely(!screen_on))
-		return;
 	if (!thunder_param.tplug_hp_enabled)
 		return;
 
@@ -666,25 +658,25 @@ static const struct input_device_id thunder_ids[] = {
 			 INPUT_DEVICE_ID_MATCH_ABSBIT,
 		.evbit = { BIT_MASK(EV_ABS) },
 		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
-			    BIT_MASK(ABS_MT_POSITION_X) |
-			    BIT_MASK(ABS_MT_POSITION_Y) },
+				BIT_MASK(ABS_MT_POSITION_X) |
+				BIT_MASK(ABS_MT_POSITION_Y) },
 	}, /* multi-touch touchscreen */
 	{
 		.flags = INPUT_DEVICE_ID_MATCH_KEYBIT |
 			 INPUT_DEVICE_ID_MATCH_ABSBIT,
 		.keybit = { [BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH) },
 		.absbit = { [BIT_WORD(ABS_X)] =
-			    BIT_MASK(ABS_X) | BIT_MASK(ABS_Y) },
+				BIT_MASK(ABS_X) | BIT_MASK(ABS_Y) },
 	}, /* touchpad */
 	{ },
 };
 
 static struct input_handler thunder_input_handler = {
-	.event		= thunder_input_event,
-	.connect	= thunder_input_connect,
-	.disconnect	= thunder_input_disconnect,
-	.name		= THUNDERPLUG,
-	.id_table	= thunder_ids,
+	.event = thunder_input_event,
+	.connect = thunder_input_connect,
+	.disconnect = thunder_input_disconnect,
+	.name = THUNDERPLUG,
+	.id_table = thunder_ids,
 };
 
 static ssize_t thunderplug_hp_enabled_show(struct kobject *kobj,
@@ -845,9 +837,6 @@ static int __init thunderplug_init(void)
 {
 	int sysfs_result;
 	int ret = 0;
-
-	/* Screen should be on on init */
-	screen_on = true;
 
 	printk(KERN_DEBUG "[%s]\n",__func__);
 
