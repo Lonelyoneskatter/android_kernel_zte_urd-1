@@ -32,6 +32,8 @@
  *
  *  V1.7.6 - fixup mutex locks.
  *
+ *  V1.7.7 - add correct modes, and some more code fixups.
+ *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -43,15 +45,14 @@
  *
  */
 
-#include <linux/powersuspend.h>
-#include <linux/state_notifier.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
+#include <linux/powersuspend.h>
 
 #define MAJOR_VERSION	1
 #define MINOR_VERSION	7
-#define MINOR_UPDATE	6
+#define MINOR_UPDATE	7
 
 struct workqueue_struct *power_suspend_work_queue;
 
@@ -65,16 +66,11 @@ static DEFINE_SPINLOCK(state_lock);
 
 static int state;
 static int mode;
-static int mode_prev;
-extern bool screen_on;
-extern bool is_state_notifier_enabled(void);
+bool power_suspended;
 
 void register_power_suspend(struct power_suspend *handler)
 {
 	struct list_head *pos;
-
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
 
 	mutex_lock(&power_suspend_lock);
 	list_for_each(pos, &power_suspend_handlers) {
@@ -88,9 +84,6 @@ EXPORT_SYMBOL(register_power_suspend);
 
 void unregister_power_suspend(struct power_suspend *handler)
 {
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
 	mutex_lock(&power_suspend_lock);
 	list_del(&handler->link);
 	mutex_unlock(&power_suspend_lock);
@@ -102,16 +95,14 @@ static void power_suspend(struct work_struct *work)
 	struct power_suspend *pos;
 	unsigned long irqflags;
 
-
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
 	mutex_lock(&power_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
-	if (unlikely(!screen_on) && (state != POWER_SUSPEND_ACTIVE))
+	if (state != POWER_SUSPEND_ACTIVE)
 		state = POWER_SUSPEND_ACTIVE;
 	spin_unlock_irqrestore(&state_lock, irqflags);
 	mutex_unlock(&power_suspend_lock);
+
+	power_suspended = true;
 
 	list_for_each_entry(pos, &power_suspend_handlers, link) {
 		if (pos->suspend != NULL) {
@@ -125,15 +116,14 @@ static void power_resume(struct work_struct *work)
 	struct power_suspend *pos;
 	unsigned long irqflags;
 
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
 	mutex_lock(&power_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
-	if (likely(screen_on) && (state != POWER_SUSPEND_INACTIVE))
+	if (state != POWER_SUSPEND_INACTIVE)
 		state = POWER_SUSPEND_INACTIVE;
 	spin_unlock_irqrestore(&state_lock, irqflags);
 	mutex_unlock(&power_suspend_lock);
+
+	power_suspended = false;
 
 	list_for_each_entry_reverse(pos, &power_suspend_handlers, link) {
 		if (pos->resume != NULL) {
@@ -142,37 +132,27 @@ static void power_resume(struct work_struct *work)
 	}
 }
 
-bool power_suspended = false;
-
 void set_power_suspend_state(int new_state)
 {
 	unsigned long irqflags;
 
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
-	if (state != new_state) {
-		spin_lock_irqsave(&state_lock, irqflags);
-		if (state == POWER_SUSPEND_INACTIVE && new_state == POWER_SUSPEND_ACTIVE) {
-			state = new_state;
-			power_suspended = true;
-			queue_work_on(0, system_power_efficient_wq,
-				&power_suspend_work);
-		} else if (state == POWER_SUSPEND_ACTIVE && new_state == POWER_SUSPEND_INACTIVE) {
-			state = new_state;
-			power_suspended = true;
-			queue_work_on(0, system_power_efficient_wq,
-				&power_resume_work);
-		}
-		spin_unlock_irqrestore(&state_lock, irqflags);
+	spin_lock_irqsave(&state_lock, irqflags);
+	if (state == POWER_SUSPEND_INACTIVE && new_state == POWER_SUSPEND_ACTIVE) {
+		state = new_state;
+		power_suspended = true;
+		queue_work_on(0, system_power_efficient_wq,
+			&power_suspend_work);
+	} else if (state == POWER_SUSPEND_ACTIVE && new_state == POWER_SUSPEND_INACTIVE) {
+		state = new_state;
+		power_suspended = false;
+		queue_work_on(0, system_power_efficient_wq,
+			&power_resume_work);
 	}
+	spin_unlock_irqrestore(&state_lock, irqflags);
 }
 
 void set_power_suspend_state_autosleep_hook(int new_state)
 {
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
 	if (mode == POWER_SUSPEND_AUTOSLEEP || mode == POWER_SUSPEND_HYBRID)
 		set_power_suspend_state(new_state);
 }
@@ -180,9 +160,6 @@ EXPORT_SYMBOL(set_power_suspend_state_autosleep_hook);
 
 void set_power_suspend_state_panel_hook(int new_state)
 {
-	if (is_state_notifier_enabled() || mode == POWER_SUSPEND_USERSPACE)
-		return;
-
 	if (mode == POWER_SUSPEND_PANEL || mode == POWER_SUSPEND_HYBRID)
 		set_power_suspend_state(new_state);
 }
@@ -220,30 +197,33 @@ static struct kobj_attribute power_suspend_state_attribute =
 static ssize_t power_suspend_mode_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	if (is_state_notifier_enabled()) {
-		return sprintf(buf, "power_suspend is disabled.%d\n", mode);
-	} else {
-		return sprintf(buf, "%u\n", mode);
-	}
+	return sprintf(buf, "%u\n", mode);
 }
 
 static ssize_t power_suspend_mode_store(struct kobject *kobj,
 		struct kobj_attribute *attr, const char *buf, size_t count)
 {
-	int data = 0;
+	int val = 0;
 
-	sscanf(buf, "%d\n", &data);
+	sscanf(buf, "%d", &val);
 
-	switch (data) {
-		case POWER_SUSPEND_AUTOSLEEP:
-		case POWER_SUSPEND_PANEL:
-		case POWER_SUSPEND_USERSPACE:
-		case POWER_SUSPEND_HYBRID:	mode = data;
-						mode_prev = data;
-						return count;
+	switch (val) {
+		case 0:
+			mode = POWER_SUSPEND_AUTOSLEEP;
+			break;
+		case 1:
+			mode = POWER_SUSPEND_USERSPACE;
+			break;
+		case 2:
+			mode = POWER_SUSPEND_PANEL;
+			break;
+		case 3:
+			mode = POWER_SUSPEND_HYBRID;
+			break;
 		default:
-			return -EINVAL;
+			break;
 	}
+	return count;
 }
 
 static struct kobj_attribute power_suspend_mode_attribute =
@@ -283,8 +263,6 @@ static int __init power_suspend_init(void)
 
 	int sysfs_result;
 
-	screen_on = true;
-
 	power_suspend_kobj = kobject_create_and_add("power_suspend",
 			kernel_kobj);
 	if (!power_suspend_kobj) {
@@ -310,17 +288,7 @@ static int __init power_suspend_init(void)
 		return -ENOMEM;
 	}
 
-//	mode = POWER_SUSPEND_USERSPACE;
-//	mode = POWER_SUSPEND_PANEL;
-//	mode = POWER_SUSPEND_AUTOSLEEP;
-	mode = POWER_SUSPEND_HYBRID;
-	mode_prev = POWER_SUSPEND_HYBRID;
-
-	if (is_state_notifier_enabled()) {
-		mode = POWER_SUSPEND_USERSPACE;
-	} else {
-		mode = mode_prev;
-	}
+	mode = POWER_SUSPEND_USERSPACE;
 
 	return 0;
 }
