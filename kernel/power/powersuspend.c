@@ -140,12 +140,12 @@ void set_power_suspend_state(int new_state)
 	if (state == POWER_SUSPEND_INACTIVE && new_state == POWER_SUSPEND_ACTIVE) {
 		state = new_state;
 		power_suspended = true;
-		queue_work_on(0, system_power_efficient_wq,
+		queue_work_on(0, power_suspend_work_queue,
 			&power_suspend_work);
 	} else if (state == POWER_SUSPEND_ACTIVE && new_state == POWER_SUSPEND_INACTIVE) {
 		state = new_state;
 		power_suspended = false;
-		queue_work_on(0, system_power_efficient_wq,
+		queue_work_on(0, power_suspend_work_queue,
 			&power_resume_work);
 	}
 	spin_unlock_irqrestore(&state_lock, irqflags);
@@ -281,8 +281,7 @@ static int __init power_suspend_init(void)
 
 	power_suspend_work_queue =
 		alloc_workqueue("power_suspend",
-			WQ_POWER_EFFICIENT | WQ_HIGHPRI |
-				WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
+			WQ_HIGHPRI | WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
 
 	if (power_suspend_work_queue == NULL) {
 		return -ENOMEM;
