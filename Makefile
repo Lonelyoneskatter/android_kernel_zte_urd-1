@@ -589,7 +589,7 @@ all: vmlinux
 #endif
 
 # Optimiztions
-KBUILD_CFLAGS	+= -Ofast
+KBUILD_CFLAGS	+= -Os
 KBUILD_CFLAGS	+= -fsanitize=leak -g0 -DNDEBUG $(GRAPHITE)
 
 # Disable all maybe-uninitialized warnings
